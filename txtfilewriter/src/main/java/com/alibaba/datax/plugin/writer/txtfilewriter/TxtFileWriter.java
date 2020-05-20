@@ -271,7 +271,8 @@ public class TxtFileWriter extends Writer {
         @Override
         public void init() {
             this.writerSliceConfig = this.getPluginJobConf();
-            this.path = this.writerSliceConfig.getString(Key.PATH);
+            // 查看tempPath是否有，若有，则写入tempPath临时目录下，若无，则写入path目录下
+            this.path = this.writerSliceConfig.getString(Key.TEMP_PATH) == null ? this.writerSliceConfig.getString(Key.PATH) : this.writerSliceConfig.getString(Key.TEMP_PATH);
             this.fileName = this.writerSliceConfig
                     .getString(com.alibaba.datax.plugin.unstructuredstorage.writer.Key.FILE_NAME);
         }
@@ -290,19 +291,31 @@ public class TxtFileWriter extends Writer {
             OutputStream outputStream = null;
             try {
                 File newFile = new File(fileFullPath);
+                File parentFile = newFile.getParentFile();
+                if (!parentFile.exists()) {
+                    parentFile.mkdirs();
+                }
                 newFile.createNewFile();
                 outputStream = new FileOutputStream(newFile);
                 UnstructuredStorageWriterUtil.writeToStream(lineReceiver,
                         outputStream, this.writerSliceConfig, this.fileName,
                         this.getTaskPluginCollector());
-            } catch (SecurityException se) {
-                throw DataXException.asDataXException(
-                        TxtFileWriterErrorCode.SECURITY_NOT_ENOUGH,
-                        String.format("您没有权限创建文件  : [%s]", this.fileName));
-            } catch (IOException ioe) {
-                throw DataXException.asDataXException(
-                        TxtFileWriterErrorCode.Write_FILE_IO_ERROR,
-                        String.format("无法创建待写文件 : [%s]", this.fileName), ioe);
+            } catch (Exception e) {
+                if (e instanceof SecurityException) {
+                    throw DataXException.asDataXException(
+                            TxtFileWriterErrorCode.SECURITY_NOT_ENOUGH,
+                            String.format("您没有权限创建文件  : [%s]", this.fileName));
+                }
+                if (e instanceof IOException) {
+                    throw DataXException.asDataXException(
+                            TxtFileWriterErrorCode.Write_FILE_IO_ERROR,
+                            String.format("无法创建待写文件 : [%s]", this.fileName), e);
+                }
+                // 删除临时文件夹
+                String tempPath = this.writerSliceConfig.getString(Key.TEMP_PATH);
+                if (tempPath != null) {
+                    new File(tempPath).delete();
+                }
             } finally {
                 IOUtils.closeQuietly(outputStream);
             }
